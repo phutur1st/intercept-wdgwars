@@ -1,5 +1,7 @@
 # intercept-wdgwars
 
+**I AM NOT RESPONSIBLE FOR SHADOW BANS**
+
 Exports live ADS-B aircraft data from an [intercept](https://github.com/smittix/intercept) PostgreSQL database into **dump1090-fa / readsb format** (`aircraft.json`), suitable for upload to [WatchDogsGo / wdgwars](https://github.com/LOCOSP/WatchDogsGo).
 
 ## How it works
