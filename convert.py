@@ -353,6 +353,20 @@ def build_payload():
     return session, payload
 
 
+def finalize_session(path, started_at):
+    now = utc_now()
+    with db_connect() as conn:
+        aircraft = fetch_aircraft_in_window(conn, started_at, now)
+        messages = fetch_message_count_in_window(conn, started_at, now)
+    payload = {
+        "now": now.timestamp(),
+        "messages": messages,
+        "aircraft": aircraft,
+    }
+    atomic_write_json(path, payload)
+    upload_file(path)
+
+
 def run_historical(target_date):
     day_start = datetime(target_date.year, target_date.month, target_date.day, tzinfo=TIMEZONE)
     day_end = min(day_start + timedelta(days=1), utc_now())
@@ -429,6 +443,7 @@ def main():
 
     last_session_id = None
     last_session_file = None
+    last_session_started_at = None
     consecutive_errors = 0
 
     while True:
@@ -437,9 +452,10 @@ def main():
 
             if session is None:
                 if last_session_file is not None:
-                    upload_file(last_session_file)
+                    finalize_session(last_session_file, last_session_started_at)
                     last_session_file = None
                     last_session_id = None
+                    last_session_started_at = None
                 print("No active session, waiting...")
                 time.sleep(REFRESH_SECONDS)
                 continue
@@ -449,10 +465,11 @@ def main():
 
             if current_session_id != last_session_id:
                 if last_session_file is not None:
-                    upload_file(last_session_file)
+                    finalize_session(last_session_file, last_session_started_at)
                 print(f"Writing session file: {current_file}")
                 last_session_id = current_session_id
                 last_session_file = current_file
+                last_session_started_at = session["started_at"]
 
             atomic_write_json(current_file, payload)
 
