@@ -332,9 +332,7 @@ def upload_file(path):
         else:
             result = resp.json()
             merged = result.get("merged_samples", "?")
-            msg = f"{path.name}: {merged} merged samples"
-            print(f"Uploaded {msg}")
-            ping_healthcheck(success=True, message=msg)
+            print(f"Uploaded {path.name}: {merged} merged samples")
     except Exception as exc:
         msg = f"error uploading {path.name}: {exc}"
         print(f"Upload {msg}")
@@ -461,6 +459,7 @@ def main():
             if WRITE_LATEST:
                 atomic_write_json(latest_path, payload)
 
+            ping_healthcheck(success=True, message=f"{len(payload['aircraft'])} aircraft")
             consecutive_errors = 0
 
         except Exception as exc:
