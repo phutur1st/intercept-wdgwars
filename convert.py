@@ -30,9 +30,6 @@ FILE_PREFIX = os.getenv("AIRCRAFT_FILE_PREFIX", "aircraft")
 REFRESH_SECONDS = float(os.getenv("AIRCRAFT_REFRESH_SECONDS", "60"))
 MAX_AGE_SECONDS = int(os.getenv("AIRCRAFT_MAX_AGE_SECONDS", "60"))
 
-SESSION_MINUTES = int(os.getenv("AIRCRAFT_SESSION_MINUTES", "15"))
-SESSION_SECONDS = SESSION_MINUTES * 60
-
 WRITE_LATEST = os.getenv("AIRCRAFT_WRITE_LATEST", "true").lower() in {"1", "true", "yes", "on"}
 LATEST_FILE = os.getenv("AIRCRAFT_LATEST_FILE", "aircraft.json")
 
@@ -91,15 +88,10 @@ def clean_desc(value):
     return s or None
 
 
-def current_session_start_epoch():
-    now = int(time.time())
-    return now - (now % SESSION_SECONDS)
-
-
-def session_filename():
-    session_start = datetime.fromtimestamp(current_session_start_epoch(), tz=TIMEZONE)
-    stamp = session_start.strftime("%Y%m%d_%H%M%S%Z")
-    return OUTPUT_DIR / f"{FILE_PREFIX}_{stamp}.json"
+def session_filepath(started_at, replay=False):
+    stamp = started_at.astimezone(TIMEZONE).strftime("%Y%m%d_%H%M%S%Z")
+    prefix = f"{FILE_PREFIX}_replay" if replay else FILE_PREFIX
+    return OUTPUT_DIR / f"{prefix}_{stamp}.json"
 
 
 def build_aircraft(row, reference=None):
@@ -172,6 +164,31 @@ def build_aircraft(row, reference=None):
         aircraft["seen_pos"] = round(seen if seen is not None else 0.0, 1)
 
     return aircraft
+
+
+def fetch_current_session(conn):
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""
+            SELECT id, started_at, ended_at
+            FROM adsb_sessions
+            WHERE started_at <= NOW()
+              AND (ended_at IS NULL OR ended_at > NOW())
+            ORDER BY started_at DESC
+            LIMIT 1
+        """)
+        return cur.fetchone()
+
+
+def fetch_sessions_for_date(conn, day_start, day_end):
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""
+            SELECT id, started_at, ended_at
+            FROM adsb_sessions
+            WHERE started_at < %s
+              AND (ended_at IS NULL OR ended_at > %s)
+            ORDER BY started_at
+        """, (day_end, day_start))
+        return cur.fetchall()
 
 
 def fetch_aircraft(conn):
@@ -326,33 +343,41 @@ def upload_file(path):
 
 def build_payload():
     with db_connect() as conn:
+        session = fetch_current_session(conn)
         aircraft = fetch_aircraft(conn)
         messages = fetch_message_count(conn)
 
-    return {
+    payload = {
         "now": time.time(),
         "messages": messages,
         "aircraft": aircraft,
     }
+    return session, payload
 
 
 def run_historical(target_date):
     day_start = datetime(target_date.year, target_date.month, target_date.day, tzinfo=TIMEZONE)
     day_end = min(day_start + timedelta(days=1), utc_now())
-    window_delta = timedelta(seconds=SESSION_SECONDS)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print(f"Historical export for {target_date} ({TIMEZONE.key})")
     print(f"DB: {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
     print(f"Output dir: {OUTPUT_DIR}")
-    print(f"Session length: {SESSION_MINUTES} minute(s)")
 
+    with db_connect() as conn:
+        sessions = fetch_sessions_for_date(conn, day_start, day_end)
+
+    if not sessions:
+        print("No sessions found for that date.")
+        return
+
+    print(f"Found {len(sessions)} session(s)")
     written = 0
-    window_start = day_start
 
-    while window_start < day_end:
-        window_end = min(window_start + window_delta, day_end)
+    for session in sessions:
+        window_start = max(session["started_at"], day_start)
+        window_end = min(session["ended_at"] or utc_now(), day_end)
 
         with db_connect() as conn:
             aircraft = fetch_aircraft_in_window(conn, window_start, window_end)
@@ -360,8 +385,7 @@ def run_historical(target_date):
                 messages = fetch_message_count_in_window(conn, window_start, window_end)
 
         if aircraft:
-            stamp = window_start.strftime("%Y%m%d_%H%M%S%Z")
-            path = OUTPUT_DIR / f"{FILE_PREFIX}_replay_{stamp}.json"
+            path = session_filepath(session["started_at"], replay=True)
             payload = {
                 "now": window_end.timestamp(),
                 "messages": messages,
@@ -371,8 +395,6 @@ def run_historical(target_date):
             upload_file(path)
             print(f"  {path.name}: {len(aircraft)} aircraft")
             written += 1
-
-        window_start = window_end
 
     print(f"Done: {written} session file(s) written to {OUTPUT_DIR}")
 
@@ -401,25 +423,37 @@ def main():
     print("Intercept ADS-B aircraft.json exporter")
     print(f"DB: {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
     print(f"Output dir: {OUTPUT_DIR}")
-    print(f"Session length: {SESSION_MINUTES} minute(s)")
     print(f"Refresh: every {REFRESH_SECONDS} second(s)")
     print(f"Max aircraft age: {MAX_AGE_SECONDS} second(s)")
     print(f"Write latest file: {WRITE_LATEST}")
     if WRITE_LATEST:
         print(f"Latest file: {latest_path}")
 
+    last_session_id = None
     last_session_file = None
     consecutive_errors = 0
 
     while True:
         try:
-            payload = build_payload()
+            session, payload = build_payload()
 
-            current_file = session_filename()
-            if current_file != last_session_file:
+            if session is None:
+                if last_session_file is not None:
+                    upload_file(last_session_file)
+                    last_session_file = None
+                    last_session_id = None
+                print("No active session, waiting...")
+                time.sleep(REFRESH_SECONDS)
+                continue
+
+            current_session_id = session["id"]
+            current_file = session_filepath(session["started_at"])
+
+            if current_session_id != last_session_id:
                 if last_session_file is not None:
                     upload_file(last_session_file)
                 print(f"Writing session file: {current_file}")
+                last_session_id = current_session_id
                 last_session_file = current_file
 
             atomic_write_json(current_file, payload)

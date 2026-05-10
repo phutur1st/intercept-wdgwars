@@ -58,8 +58,7 @@ All settings are via environment variables (or `.env`):
 | `AIRCRAFT_FILE_PREFIX` | `aircraft` | Prefix for session filenames |
 | `AIRCRAFT_REFRESH_SECONDS` | `60` | How often to write (seconds) — live mode only |
 | `AIRCRAFT_MAX_AGE_SECONDS` | `60` | Drop aircraft older than this — live mode only. Keep this >= `AIRCRAFT_REFRESH_SECONDS` or aircraft may be missed between writes |
-| `AIRCRAFT_TIMEZONE` | `UTC` | IANA timezone for interpreting `--date` values (e.g. `America/New_York`) |
-| `AIRCRAFT_SESSION_MINUTES` | `15` | Rotate to a new session file every N minutes |
+| `AIRCRAFT_TIMEZONE` | `UTC` | IANA timezone for interpreting `--date` values and filenames (e.g. `America/New_York`) |
 | `AIRCRAFT_MAX_ERRORS` | `10` | Exit after this many consecutive DB errors — live mode only |
 | `WDGWARS_API_KEY` | _(unset)_ | API key from your wdgwars profile. Set to enable auto-upload after each write |
 | `WDGWARS_UPLOAD_URL` | `https://wdgwars.pl/api/upload-csv` | Upload endpoint — default is correct for wdgwars.pl |
@@ -69,7 +68,7 @@ All settings are via environment variables (or `.env`):
 
 ## Output
 
-Live session files are written as `aircraft_YYYYMMDD_HHMMSSTZ.json` (e.g. `aircraft_20260510_140000EDT.json`). Historical (replay) session files are written as `aircraft_replay_YYYYMMDD_HHMMSSTZ.json`. The timezone abbreviation in the filename reflects `AIRCRAFT_TIMEZONE`. Both rotate on the interval set by `AIRCRAFT_SESSION_MINUTES`. These timestamped session files are what you upload to wdgwars.
+Session files are named after the intercept session start time: `aircraft_YYYYMMDD_HHMMSSTZ.json` in live mode, `aircraft_replay_YYYYMMDD_HHMMSSTZ.json` in historical mode. The timezone abbreviation reflects `AIRCRAFT_TIMEZONE`. Files rotate when intercept starts a new session. These timestamped session files are what you upload to wdgwars.
 
 The live file (`aircraft.json`) is a convenience copy of the latest payload, useful for tools that expect a fixed filename (e.g. tar1090, readsb). It is not needed for wdgwars uploads.
 
