@@ -1,0 +1,8 @@
+.env
+.claude/
+adsb_exports/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
