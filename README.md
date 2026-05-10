@@ -61,6 +61,9 @@ All settings are via environment variables (or `.env`):
 | `AIRCRAFT_TIMEZONE` | `UTC` | IANA timezone for interpreting `--date` values (e.g. `America/New_York`) |
 | `AIRCRAFT_SESSION_MINUTES` | `15` | Rotate to a new session file every N minutes |
 | `AIRCRAFT_MAX_ERRORS` | `10` | Exit after this many consecutive DB errors — live mode only |
+| `WDGWARS_API_KEY` | _(unset)_ | API key from your wdgwars profile. Set to enable auto-upload after each write |
+| `WDGWARS_UPLOAD_URL` | `https://wdgwars.pl/api/upload-csv` | Upload endpoint — default is correct for wdgwars.pl |
+| `HEALTHCHECKS_URL` | _(unset)_ | healthchecks.io ping URL. Pinged on successful upload, `/fail` appended on error |
 | `AIRCRAFT_WRITE_LATEST` | `true` | Also write a live `aircraft.json` — live mode only |
 | `AIRCRAFT_LATEST_FILE` | `aircraft.json` | Name of the live file |
 

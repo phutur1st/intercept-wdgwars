@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import psycopg2
+import requests
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
 
@@ -38,6 +39,11 @@ LATEST_FILE = os.getenv("AIRCRAFT_LATEST_FILE", "aircraft.json")
 TIMEZONE = ZoneInfo(os.getenv("AIRCRAFT_TIMEZONE", "UTC"))
 
 MAX_CONSECUTIVE_ERRORS = int(os.getenv("AIRCRAFT_MAX_ERRORS", "10"))
+
+WDGWARS_API_KEY = os.getenv("WDGWARS_API_KEY", "")
+WDGWARS_UPLOAD_URL = os.getenv("WDGWARS_UPLOAD_URL", "https://wdgwars.pl/api/upload-csv")
+
+HEALTHCHECKS_URL = os.getenv("HEALTHCHECKS_URL", "")
 
 
 def db_connect():
@@ -277,6 +283,47 @@ def atomic_write_json(path, payload):
             os.unlink(tmp_path)
 
 
+def ping_healthcheck(success=True, message=""):
+    if not HEALTHCHECKS_URL:
+        return
+    url = HEALTHCHECKS_URL if success else f"{HEALTHCHECKS_URL}/fail"
+    try:
+        requests.post(url, data=message.encode(), timeout=10)
+    except Exception:
+        pass
+
+
+def upload_file(path):
+    if not WDGWARS_API_KEY:
+        return
+    try:
+        with open(path, "rb") as f:
+            resp = requests.post(
+                WDGWARS_UPLOAD_URL,
+                headers={"X-API-Key": WDGWARS_API_KEY},
+                files={"file": (path.name, f, "application/json")},
+                timeout=30,
+            )
+        if resp.status_code == 429:
+            msg = f"rate limited: {path.name}"
+            print(f"Upload {msg}")
+            ping_healthcheck(success=False, message=msg)
+        elif not resp.ok:
+            msg = f"failed ({resp.status_code}): {path.name} — {resp.text}"
+            print(f"Upload {msg}")
+            ping_healthcheck(success=False, message=msg)
+        else:
+            result = resp.json()
+            merged = result.get("merged_samples", "?")
+            msg = f"{path.name}: {merged} merged samples"
+            print(f"Uploaded {msg}")
+            ping_healthcheck(success=True, message=msg)
+    except Exception as exc:
+        msg = f"error uploading {path.name}: {exc}"
+        print(f"Upload {msg}")
+        ping_healthcheck(success=False, message=msg)
+
+
 def build_payload():
     with db_connect() as conn:
         aircraft = fetch_aircraft(conn)
@@ -321,6 +368,7 @@ def run_historical(target_date):
                 "aircraft": aircraft,
             }
             atomic_write_json(path, payload)
+            upload_file(path)
             print(f"  {path.name}: {len(aircraft)} aircraft")
             written += 1
 
@@ -373,6 +421,7 @@ def main():
                 last_session_file = current_file
 
             atomic_write_json(current_file, payload)
+            upload_file(current_file)
 
             if WRITE_LATEST:
                 atomic_write_json(latest_path, payload)
