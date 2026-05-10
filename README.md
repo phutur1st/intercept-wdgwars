@@ -6,10 +6,7 @@ Exports live ADS-B aircraft data from an [intercept](https://github.com/smittix/
 
 ## How it works
 
-The script polls `adsb_snapshots` in the intercept database on a configurable interval and writes two outputs atomically on each cycle:
-
-- **Session file** — a rolling snapshot of recently seen aircraft, one file per intercept session. When the session ends, the file is rewritten once with all aircraft seen across the full session before being uploaded to wdgwars.
-- **Latest file** (`aircraft.json`) — a rolling snapshot limited to aircraft seen within `AIRCRAFT_MAX_AGE_SECONDS`, for tools that expect a fixed filename.
+The script polls `adsb_snapshots` in the intercept database on a configurable interval and writes a rolling-window snapshot of recently seen aircraft to both a session file and a fixed `aircraft.json` on each cycle. Session files align to intercept session boundaries — when a session ends, the session file is rewritten once with all aircraft seen across the full session before being uploaded to wdgwars.
 
 ## Requirements
 
