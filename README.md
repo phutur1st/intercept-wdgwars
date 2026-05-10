@@ -4,7 +4,7 @@ Exports live ADS-B aircraft data from an [intercept](https://github.com/smittix/
 
 ## How it works
 
-The script polls `adsb_snapshots` in the intercept database on a configurable interval, builds a dump1090-fa / readsb compatible `aircraft.json` payload, and writes it atomically to disk. It maintains a rolling latest file (`aircraft.json`) and optionally rotates timestamped session files.
+The script polls `adsb_snapshots` in the intercept database on a configurable interval, builds a dump1090-fa / readsb compatible `aircraft.json` payload, and writes it atomically to disk. Session files are aligned to intercept's own session boundaries — one file per session, uploaded automatically when the session ends.
 
 ## Requirements
 
@@ -41,7 +41,7 @@ Generates session files for a full day (midnight to midnight in `AIRCRAFT_TIMEZO
 python convert.py --date 2026-05-09
 ```
 
-This iterates through every session window for the given date, skips windows with no aircraft, and writes the same filename format as live mode would have produced.
+This queries `adsb_sessions` for all sessions overlapping the given date and writes one file per session. Sessions with no aircraft data are skipped.
 
 ## Configuration
 
