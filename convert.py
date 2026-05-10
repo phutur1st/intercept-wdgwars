@@ -417,11 +417,12 @@ def main():
 
             current_file = session_filename()
             if current_file != last_session_file:
+                if last_session_file is not None:
+                    upload_file(last_session_file)
                 print(f"Writing session file: {current_file}")
                 last_session_file = current_file
 
             atomic_write_json(current_file, payload)
-            upload_file(current_file)
 
             if WRITE_LATEST:
                 atomic_write_json(latest_path, payload)
