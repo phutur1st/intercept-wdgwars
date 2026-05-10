@@ -58,13 +58,16 @@ All settings are via environment variables (or `.env`):
 | `AIRCRAFT_FILE_PREFIX` | `aircraft` | Prefix for session filenames |
 | `AIRCRAFT_REFRESH_SECONDS` | `1` | How often to write (seconds) — live mode only |
 | `AIRCRAFT_MAX_AGE_SECONDS` | `60` | Drop aircraft older than this — live mode only |
+| `AIRCRAFT_TIMEZONE` | `UTC` | IANA timezone for interpreting `--date` values (e.g. `America/New_York`) |
 | `AIRCRAFT_SESSION_MINUTES` | `15` | Rotate to a new session file every N minutes |
 | `AIRCRAFT_WRITE_LATEST` | `true` | Also write a live `aircraft.json` — live mode only |
 | `AIRCRAFT_LATEST_FILE` | `aircraft.json` | Name of the live file |
 
 ## Output
 
-Live session files are written as `aircraft_YYYYMMDD_HHMMSSz.json`. Historical (replay) session files are written as `aircraft_replay_YYYYMMDD_HHMMSSz.json`. Both rotate on the interval set by `AIRCRAFT_SESSION_MINUTES`. The live file (`aircraft.json`) is overwritten each refresh cycle and is what you point the wdgwars uploader at.
+Live session files are written as `aircraft_YYYYMMDD_HHMMSSz.json`. Historical (replay) session files are written as `aircraft_replay_YYYYMMDD_HHMMSSz.json`. Both rotate on the interval set by `AIRCRAFT_SESSION_MINUTES`. These timestamped session files are what you upload to wdgwars.
+
+The live file (`aircraft.json`) is a convenience copy of the latest payload, useful for tools that expect a fixed filename (e.g. tar1090, readsb). It is not needed for wdgwars uploads.
 
 Session files accumulate and are not automatically pruned — set up a cron job or logrotate rule if disk space is a concern:
 

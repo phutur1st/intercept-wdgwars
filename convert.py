@@ -6,6 +6,7 @@ import json
 import time
 import tempfile
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import psycopg2
@@ -33,6 +34,8 @@ SESSION_SECONDS = SESSION_MINUTES * 60
 
 WRITE_LATEST = os.getenv("AIRCRAFT_WRITE_LATEST", "true").lower() in {"1", "true", "yes", "on"}
 LATEST_FILE = os.getenv("AIRCRAFT_LATEST_FILE", "aircraft.json")
+
+TIMEZONE = ZoneInfo(os.getenv("AIRCRAFT_TIMEZONE", "UTC"))
 
 
 def db_connect():
@@ -305,13 +308,13 @@ def build_payload():
 
 
 def run_historical(target_date):
-    day_start = datetime(target_date.year, target_date.month, target_date.day, tzinfo=timezone.utc)
+    day_start = datetime(target_date.year, target_date.month, target_date.day, tzinfo=TIMEZONE)
     day_end = day_start + timedelta(days=1)
     window_delta = timedelta(seconds=SESSION_SECONDS)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    print(f"Historical export for {target_date} (UTC)")
+    print(f"Historical export for {target_date} ({TIMEZONE.key})")
     print(f"DB: {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
     print(f"Output dir: {OUTPUT_DIR}")
     print(f"Session length: {SESSION_MINUTES} minute(s)")
