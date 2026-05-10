@@ -12,7 +12,7 @@ The script polls `adsb_snapshots` in the intercept database on a configurable in
 - A running [intercept](https://github.com/smittix/intercept) instance with PostgreSQL
 
 ```
-pip install psycopg2-binary python-dotenv
+pip install -r requirements.txt
 ```
 
 ## Setup
@@ -60,6 +60,7 @@ All settings are via environment variables (or `.env`):
 | `AIRCRAFT_MAX_AGE_SECONDS` | `60` | Drop aircraft older than this — live mode only. Keep this >= `AIRCRAFT_REFRESH_SECONDS` or aircraft may be missed between writes |
 | `AIRCRAFT_TIMEZONE` | `UTC` | IANA timezone for interpreting `--date` values (e.g. `America/New_York`) |
 | `AIRCRAFT_SESSION_MINUTES` | `15` | Rotate to a new session file every N minutes |
+| `AIRCRAFT_MAX_ERRORS` | `10` | Exit after this many consecutive DB errors — live mode only |
 | `AIRCRAFT_WRITE_LATEST` | `true` | Also write a live `aircraft.json` — live mode only |
 | `AIRCRAFT_LATEST_FILE` | `aircraft.json` | Name of the live file |
 

@@ -37,6 +37,8 @@ LATEST_FILE = os.getenv("AIRCRAFT_LATEST_FILE", "aircraft.json")
 
 TIMEZONE = ZoneInfo(os.getenv("AIRCRAFT_TIMEZONE", "UTC"))
 
+MAX_CONSECUTIVE_ERRORS = int(os.getenv("AIRCRAFT_MAX_ERRORS", "10"))
+
 
 def db_connect():
     return psycopg2.connect(
@@ -74,20 +76,16 @@ def clean_desc(value):
         return None
     s = str(value).strip()
     # postgres text-array literals come through as {"foo",bar,baz} — unwrap to first element
-    if s.startswith("{") and s.endswith("}"):
-        first = s[1:-1].split(",")[0].strip().strip('"')
-        return first or None
+    if len(s) >= 2 and s[0] == "{" and s[-1] == "}":
+        inner = s[1:-1]
+        if inner.startswith('"'):
+            close = inner.find('"', 1)
+            return inner[1:close] or None
+        return inner.split(",")[0].strip() or None
     return s or None
 
 
 def current_session_start_epoch():
-    """
-    Returns the start epoch for the current rotation window.
-
-    Example:
-      SESSION_MINUTES=15 creates windows like:
-      12:00, 12:15, 12:30, 12:45
-    """
     now = int(time.time())
     return now - (now % SESSION_SECONDS)
 
@@ -170,7 +168,7 @@ def build_aircraft(row, reference=None):
     return aircraft
 
 
-def fetch_aircraft():
+def fetch_aircraft(conn):
     query = """
         WITH latest AS (
             SELECT DISTINCT ON (icao)
@@ -196,22 +194,23 @@ def fetch_aircraft():
         FROM latest
         ORDER BY captured_at DESC;
     """
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(query, (MAX_AGE_SECONDS,))
+        rows = cur.fetchall()
 
-    with db_connect() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(query, (MAX_AGE_SECONDS,))
-            rows = cur.fetchall()
-
-    aircraft = []
-    for row in rows:
-        item = build_aircraft(row)
-        if item.get("hex"):
-            aircraft.append(item)
-
-    return aircraft
+    return [item for row in rows if (item := build_aircraft(row)) and item.get("hex")]
 
 
-def fetch_aircraft_in_window(window_start, window_end):
+def fetch_message_count(conn):
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM adsb_messages;")
+            return int(cur.fetchone()[0])
+    except Exception:
+        return 0
+
+
+def fetch_aircraft_in_window(conn, window_start, window_end):
     query = """
         WITH latest AS (
             SELECT DISTINCT ON (icao)
@@ -237,40 +236,21 @@ def fetch_aircraft_in_window(window_start, window_end):
         FROM latest
         ORDER BY captured_at DESC;
     """
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(query, (window_start, window_end))
+        rows = cur.fetchall()
 
-    with db_connect() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute(query, (window_start, window_end))
-            rows = cur.fetchall()
-
-    aircraft = []
-    for row in rows:
-        item = build_aircraft(row, reference=window_end)
-        if item.get("hex"):
-            aircraft.append(item)
-
-    return aircraft
+    return [item for row in rows if (item := build_aircraft(row, reference=window_end)) and item.get("hex")]
 
 
-def fetch_message_count():
+def fetch_message_count_in_window(conn, window_start, window_end):
     try:
-        with db_connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM adsb_messages;")
-                return int(cur.fetchone()[0])
-    except Exception:
-        return 0
-
-
-def fetch_message_count_in_window(window_start, window_end):
-    try:
-        with db_connect() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT COUNT(*) FROM adsb_messages WHERE received_at >= %s AND received_at < %s;",
-                    (window_start, window_end),
-                )
-                return int(cur.fetchone()[0])
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM adsb_messages WHERE received_at >= %s AND received_at < %s;",
+                (window_start, window_end),
+            )
+            return int(cur.fetchone()[0])
     except Exception:
         return 0
 
@@ -298,18 +278,20 @@ def atomic_write_json(path, payload):
 
 
 def build_payload():
-    aircraft = fetch_aircraft()
+    with db_connect() as conn:
+        aircraft = fetch_aircraft(conn)
+        messages = fetch_message_count(conn)
 
     return {
         "now": time.time(),
-        "messages": fetch_message_count(),
+        "messages": messages,
         "aircraft": aircraft,
     }
 
 
 def run_historical(target_date):
     day_start = datetime(target_date.year, target_date.month, target_date.day, tzinfo=TIMEZONE)
-    day_end = day_start + timedelta(days=1)
+    day_end = min(day_start + timedelta(days=1), utc_now())
     window_delta = timedelta(seconds=SESSION_SECONDS)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -323,15 +305,19 @@ def run_historical(target_date):
     window_start = day_start
 
     while window_start < day_end:
-        window_end = window_start + window_delta
-        aircraft = fetch_aircraft_in_window(window_start, window_end)
+        window_end = min(window_start + window_delta, day_end)
+
+        with db_connect() as conn:
+            aircraft = fetch_aircraft_in_window(conn, window_start, window_end)
+            if aircraft:
+                messages = fetch_message_count_in_window(conn, window_start, window_end)
 
         if aircraft:
             stamp = window_start.strftime("%Y%m%d_%H%M%S%Z")
             path = OUTPUT_DIR / f"{FILE_PREFIX}_replay_{stamp}.json"
             payload = {
                 "now": window_end.timestamp(),
-                "messages": fetch_message_count_in_window(window_start, window_end),
+                "messages": messages,
                 "aircraft": aircraft,
             }
             atomic_write_json(path, payload)
@@ -348,7 +334,7 @@ def main():
     parser.add_argument(
         "--date",
         metavar="YYYY-MM-DD",
-        help="Export historical data for a specific UTC date instead of running live",
+        help="Export historical data for a specific date (interpreted in AIRCRAFT_TIMEZONE) instead of running live",
     )
     args = parser.parse_args()
 
@@ -375,13 +361,13 @@ def main():
         print(f"Latest file: {latest_path}")
 
     last_session_file = None
+    consecutive_errors = 0
 
     while True:
         try:
             payload = build_payload()
 
             current_file = session_filename()
-
             if current_file != last_session_file:
                 print(f"Writing session file: {current_file}")
                 last_session_file = current_file
@@ -391,8 +377,14 @@ def main():
             if WRITE_LATEST:
                 atomic_write_json(latest_path, payload)
 
+            consecutive_errors = 0
+
         except Exception as exc:
-            print(f"Exporter error: {exc}")
+            consecutive_errors += 1
+            print(f"Exporter error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {exc}")
+            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                print("Too many consecutive errors, exiting.")
+                raise SystemExit(1)
 
         time.sleep(REFRESH_SECONDS)
 
