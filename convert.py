@@ -26,7 +26,7 @@ DB_PASSWORD = os.getenv("INTERCEPT_ADSB_DB_PASSWORD", "intercept")
 OUTPUT_DIR = Path(os.getenv("AIRCRAFT_OUTPUT_DIR", "./adsb_exports"))
 FILE_PREFIX = os.getenv("AIRCRAFT_FILE_PREFIX", "aircraft")
 
-REFRESH_SECONDS = float(os.getenv("AIRCRAFT_REFRESH_SECONDS", "1"))
+REFRESH_SECONDS = float(os.getenv("AIRCRAFT_REFRESH_SECONDS", "60"))
 MAX_AGE_SECONDS = int(os.getenv("AIRCRAFT_MAX_AGE_SECONDS", "60"))
 
 SESSION_MINUTES = int(os.getenv("AIRCRAFT_SESSION_MINUTES", "15"))

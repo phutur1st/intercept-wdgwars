@@ -56,8 +56,8 @@ All settings are via environment variables (or `.env`):
 | `INTERCEPT_ADSB_DB_PASSWORD` | `intercept` | Database password |
 | `AIRCRAFT_OUTPUT_DIR` | `./adsb_exports` | Directory for output files |
 | `AIRCRAFT_FILE_PREFIX` | `aircraft` | Prefix for session filenames |
-| `AIRCRAFT_REFRESH_SECONDS` | `1` | How often to write (seconds) — live mode only |
-| `AIRCRAFT_MAX_AGE_SECONDS` | `60` | Drop aircraft older than this — live mode only |
+| `AIRCRAFT_REFRESH_SECONDS` | `60` | How often to write (seconds) — live mode only |
+| `AIRCRAFT_MAX_AGE_SECONDS` | `60` | Drop aircraft older than this — live mode only. Keep this >= `AIRCRAFT_REFRESH_SECONDS` or aircraft may be missed between writes |
 | `AIRCRAFT_TIMEZONE` | `UTC` | IANA timezone for interpreting `--date` values (e.g. `America/New_York`) |
 | `AIRCRAFT_SESSION_MINUTES` | `15` | Rotate to a new session file every N minutes |
 | `AIRCRAFT_WRITE_LATEST` | `true` | Also write a live `aircraft.json` — live mode only |
