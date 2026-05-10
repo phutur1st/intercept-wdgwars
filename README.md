@@ -35,7 +35,7 @@ python convert.py
 
 ### Historical
 
-Generates session files for a full UTC day from data already in the database. Useful for backfilling missed days or uploading past data to wdgwars:
+Generates session files for a full day (midnight to midnight in `AIRCRAFT_TIMEZONE`) from data already in the database. Useful for backfilling missed days or uploading past data to wdgwars:
 
 ```bash
 python convert.py --date 2026-05-09
