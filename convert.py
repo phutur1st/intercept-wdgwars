@@ -93,8 +93,8 @@ def current_session_start_epoch():
 
 
 def session_filename():
-    session_start = datetime.fromtimestamp(current_session_start_epoch(), tz=timezone.utc)
-    stamp = session_start.strftime("%Y%m%d_%H%M%SZ")
+    session_start = datetime.fromtimestamp(current_session_start_epoch(), tz=TIMEZONE)
+    stamp = session_start.strftime("%Y%m%d_%H%M%S%Z")
     return OUTPUT_DIR / f"{FILE_PREFIX}_{stamp}.json"
 
 
@@ -327,7 +327,7 @@ def run_historical(target_date):
         aircraft = fetch_aircraft_in_window(window_start, window_end)
 
         if aircraft:
-            stamp = window_start.strftime("%Y%m%d_%H%M%SZ")
+            stamp = window_start.strftime("%Y%m%d_%H%M%S%Z")
             path = OUTPUT_DIR / f"{FILE_PREFIX}_replay_{stamp}.json"
             payload = {
                 "now": window_end.timestamp(),

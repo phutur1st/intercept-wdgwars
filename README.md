@@ -65,7 +65,7 @@ All settings are via environment variables (or `.env`):
 
 ## Output
 
-Live session files are written as `aircraft_YYYYMMDD_HHMMSSz.json`. Historical (replay) session files are written as `aircraft_replay_YYYYMMDD_HHMMSSz.json`. Both rotate on the interval set by `AIRCRAFT_SESSION_MINUTES`. These timestamped session files are what you upload to wdgwars.
+Live session files are written as `aircraft_YYYYMMDD_HHMMSSTZ.json` (e.g. `aircraft_20260510_140000EDT.json`). Historical (replay) session files are written as `aircraft_replay_YYYYMMDD_HHMMSSTZ.json`. The timezone abbreviation in the filename reflects `AIRCRAFT_TIMEZONE`. Both rotate on the interval set by `AIRCRAFT_SESSION_MINUTES`. These timestamped session files are what you upload to wdgwars.
 
 The live file (`aircraft.json`) is a convenience copy of the latest payload, useful for tools that expect a fixed filename (e.g. tar1090, readsb). It is not needed for wdgwars uploads.
 
