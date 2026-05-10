@@ -64,7 +64,7 @@ All settings are via environment variables (or `.env`):
 | `AIRCRAFT_MAX_ERRORS` | `10` | Exit after this many consecutive DB errors — live mode only |
 | `WDGWARS_API_KEY` | _(unset)_ | API key from your wdgwars profile. Set to enable auto-upload after each write |
 | `WDGWARS_UPLOAD_URL` | `https://wdgwars.pl/api/upload-csv` | Upload endpoint — default is correct for wdgwars.pl |
-| `HEALTHCHECKS_URL` | _(unset)_ | healthchecks.io ping URL. Pinged every write cycle as a heartbeat; `/fail` on upload error. Set your check interval to `AIRCRAFT_REFRESH_SECONDS` + a small grace period |
+| `HEALTHCHECKS_URL` | _(unset)_ | healthchecks.io ping URL. Pinged on successful session upload; `/fail` on upload error. Set your check interval to match how often you rotate sessions (e.g. 24h + grace period) |
 | `AIRCRAFT_WRITE_LATEST` | `true` | Also write a live `aircraft.json` — live mode only |
 | `AIRCRAFT_LATEST_FILE` | `aircraft.json` | Name of the live file |
 

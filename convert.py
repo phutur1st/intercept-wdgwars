@@ -365,6 +365,7 @@ def finalize_session(path, started_at):
     }
     atomic_write_json(path, payload)
     upload_file(path)
+    ping_healthcheck(success=True, message=f"{len(aircraft)} aircraft uploaded")
 
 
 def run_historical(target_date):
@@ -476,7 +477,6 @@ def main():
             if WRITE_LATEST:
                 atomic_write_json(latest_path, payload)
 
-            ping_healthcheck(success=True, message=f"{len(payload['aircraft'])} aircraft")
             consecutive_errors = 0
 
         except Exception as exc:
