@@ -1,10 +1,10 @@
 # intercept-wdgwars
 
-Exports live ADS-B aircraft data from an [intercept](https://github.com/smittix/intercept) PostgreSQL database into the `aircraft.json` format used by readsb / dump1090-fa, suitable for upload to [WatchDogsGo / wdgwars](https://github.com/LOCOSP/WatchDogsGo).
+Exports live ADS-B aircraft data from an [intercept](https://github.com/smittix/intercept) PostgreSQL database into **dump1090-fa / readsb format** (`aircraft.json`), suitable for upload to [WatchDogsGo / wdgwars](https://github.com/LOCOSP/WatchDogsGo).
 
 ## How it works
 
-The script polls `adsb_snapshots` in the intercept database on a configurable interval, builds a standard `aircraft.json` payload, and writes it atomically to disk. It maintains a rolling latest file (`aircraft.json`) and optionally rotates timestamped session files.
+The script polls `adsb_snapshots` in the intercept database on a configurable interval, builds a dump1090-fa / readsb compatible `aircraft.json` payload, and writes it atomically to disk. It maintains a rolling latest file (`aircraft.json`) and optionally rotates timestamped session files.
 
 ## Requirements
 
