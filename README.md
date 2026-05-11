@@ -83,6 +83,24 @@ Session files pile up on disk and are not automatically pruned — set up a cron
 find /path/to/adsb_exports -name 'aircraft_*.json' -mtime +7 -delete
 ```
 
+## Demo
+
+![intercept-wdgwars running](misc/testing.png)
+
+```
+DB: intercept@localhost:5432/intercept_adsb
+Output dir: adsb_exports
+Refresh: every 5.0 second(s)
+Max aircraft age: 60 second(s)
+Write latest file: True
+Latest file: adsb_exports/aircraft.json
+No active session, waiting...
+No active session, waiting...
+Writing session file: adsb_exports/aircraft_20260510_221933EDT.json
+
+Uploaded aircraft_20260510_221933EDT.json: {'ok': True, 'imported': 7, 'captured': 0, 'updated': 0, 'duplicates': 0, 'no_gps': 0, 'bad_rows': 0, 'cooldown': 0, 'merged_samples': 0, 'total': 63105405}
+```
+
 ## Notes
 
 - Tested against intercept schema as of May 2026
