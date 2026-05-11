@@ -331,8 +331,7 @@ def upload_file(path):
             ping_healthcheck(success=False, message=msg)
         else:
             result = resp.json()
-            merged = result.get("merged_samples", "?")
-            print(f"Uploaded {path.name}: {merged} merged samples")
+            print(f"Uploaded {path.name}: {result}")
     except Exception as exc:
         msg = f"error uploading {path.name}: {exc}"
         print(f"Upload {msg}")
