@@ -1,0 +1,19 @@
+[Unit]
+Description=Intercept ADS-B to wdgwars exporter
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/path/to/intercept-wdgwars
+ExecStart=/path/to/python convert.py
+EnvironmentFile=/path/to/intercept-wdgwars/.env
+Restart=on-failure
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=intercept-wdgwars
+
+[Install]
+WantedBy=multi-user.target

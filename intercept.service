@@ -1,0 +1,18 @@
+[Unit]
+Description=Intercept ADS-B / SDR platform
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/path/to/intercept
+ExecStart=/path/to/intercept/start.sh
+Restart=on-failure
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=intercept
+
+[Install]
+WantedBy=multi-user.target
