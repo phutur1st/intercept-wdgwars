@@ -193,7 +193,7 @@ def fetch_sessions_for_date(conn, day_start, day_end):
 
 def fetch_aircraft(conn):
     query = """
-        WITH latest AS (
+        WITH latest_meta AS (
             SELECT DISTINCT ON (icao)
                 icao,
                 captured_at,
@@ -205,20 +205,31 @@ def fetch_aircraft(conn):
                 speed,
                 heading,
                 vertical_rate,
-                lat,
-                lon,
                 squawk,
                 snapshot
             FROM adsb_snapshots
             WHERE captured_at >= NOW() - (%s || ' seconds')::interval
+              AND icao IS NOT NULL
+            ORDER BY icao, captured_at DESC
+        ),
+        latest_pos AS (
+            SELECT DISTINCT ON (icao)
+                icao,
+                lat,
+                lon
+            FROM adsb_snapshots
+            WHERE captured_at >= NOW() - (%s || ' seconds')::interval
+              AND icao IS NOT NULL
+              AND lat IS NOT NULL AND lon IS NOT NULL
             ORDER BY icao, captured_at DESC
         )
-        SELECT *
-        FROM latest
-        ORDER BY captured_at DESC;
+        SELECT m.*, p.lat, p.lon
+        FROM latest_meta m
+        LEFT JOIN latest_pos p USING (icao)
+        ORDER BY m.captured_at DESC;
     """
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute(query, (MAX_AGE_SECONDS,))
+        cur.execute(query, (MAX_AGE_SECONDS, MAX_AGE_SECONDS))
         rows = cur.fetchall()
 
     return [item for row in rows if (item := build_aircraft(row)) and item.get("hex")]
@@ -235,7 +246,7 @@ def fetch_message_count(conn):
 
 def fetch_aircraft_in_window(conn, window_start, window_end):
     query = """
-        WITH latest AS (
+        WITH latest_meta AS (
             SELECT DISTINCT ON (icao)
                 icao,
                 captured_at,
@@ -247,20 +258,31 @@ def fetch_aircraft_in_window(conn, window_start, window_end):
                 speed,
                 heading,
                 vertical_rate,
-                lat,
-                lon,
                 squawk,
                 snapshot
             FROM adsb_snapshots
             WHERE captured_at >= %s AND captured_at < %s
+              AND icao IS NOT NULL
+            ORDER BY icao, captured_at DESC
+        ),
+        latest_pos AS (
+            SELECT DISTINCT ON (icao)
+                icao,
+                lat,
+                lon
+            FROM adsb_snapshots
+            WHERE captured_at >= %s AND captured_at < %s
+              AND icao IS NOT NULL
+              AND lat IS NOT NULL AND lon IS NOT NULL
             ORDER BY icao, captured_at DESC
         )
-        SELECT *
-        FROM latest
-        ORDER BY captured_at DESC;
+        SELECT m.*, p.lat, p.lon
+        FROM latest_meta m
+        LEFT JOIN latest_pos p USING (icao)
+        ORDER BY m.captured_at DESC;
     """
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        cur.execute(query, (window_start, window_end))
+        cur.execute(query, (window_start, window_end, window_start, window_end))
         rows = cur.fetchall()
 
     return [item for row in rows if (item := build_aircraft(row, reference=window_end)) and item.get("hex")]
@@ -352,13 +374,19 @@ def build_payload():
     return session, payload
 
 
-def finalize_session(path, started_at):
-    now = utc_now()
+def finalize_session(path, session_id, started_at):
     with db_connect() as conn:
-        aircraft = fetch_aircraft_in_window(conn, started_at, now)
-        messages = fetch_message_count_in_window(conn, started_at, now)
+        with conn.cursor() as cur:
+            cur.execute("SELECT ended_at FROM adsb_sessions WHERE id = %s", (session_id,))
+            row = cur.fetchone()
+        ended_at = row[0] if row and row[0] else None
+        if ended_at is not None and ended_at.tzinfo is None:
+            ended_at = ended_at.replace(tzinfo=timezone.utc)
+        window_end = ended_at or utc_now()
+        aircraft = fetch_aircraft_in_window(conn, started_at, window_end)
+        messages = fetch_message_count_in_window(conn, started_at, window_end)
     payload = {
-        "now": now.timestamp(),
+        "now": window_end.timestamp(),
         "messages": messages,
         "aircraft": aircraft,
     }
@@ -452,7 +480,7 @@ def main():
 
             if session is None:
                 if last_session_file is not None:
-                    finalize_session(last_session_file, last_session_started_at)
+                    finalize_session(last_session_file, last_session_id, last_session_started_at)
                     last_session_file = None
                     last_session_id = None
                     last_session_started_at = None
@@ -465,7 +493,7 @@ def main():
 
             if current_session_id != last_session_id:
                 if last_session_file is not None:
-                    finalize_session(last_session_file, last_session_started_at)
+                    finalize_session(last_session_file, last_session_id, last_session_started_at)
                 print(f"Writing session file: {current_file}")
                 last_session_id = current_session_id
                 last_session_file = current_file
