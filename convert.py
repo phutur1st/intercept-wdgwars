@@ -363,6 +363,8 @@ def to_upload_record(ac, now=None):
     return rec
 
 
+# HMAC envelope derived from gungnir by Zach B.
+# https://github.com/HiroAlleyCat/gungnir — MIT License
 def _build_envelope(payload_dict, api_key):
     body_json = json.dumps(payload_dict, separators=(",", ":"))
     data_b64 = base64.b64encode(body_json.encode()).decode()

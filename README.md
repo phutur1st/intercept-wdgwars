@@ -63,7 +63,7 @@ All settings are via environment variables (or `.env`):
 | `AIRCRAFT_TIMEZONE` | `UTC` | IANA timezone for interpreting `--date` values and filenames (e.g. `America/New_York`) |
 | `AIRCRAFT_MAX_ERRORS` | `10` | Exit after this many consecutive DB errors — live mode only |
 | `WDGWARS_API_KEY` | _(unset)_ | API key from your wdgwars profile. Set to enable auto-upload after each write |
-| `WDGWARS_UPLOAD_URL` | `https://wdgwars.pl/api/upload-csv` | Upload endpoint — default is correct for wdgwars.pl |
+| `WDGWARS_UPLOAD_URL` | `https://wdgwars.pl/api/upload/` | Upload endpoint — trailing slash is required. Use `/endpoint/upload/` if you hit 429s |
 | `HEALTHCHECKS_URL` | _(unset)_ | healthchecks.io ping URL. Pinged on successful session upload; `/fail` on upload error. Set your check interval to match how often you rotate sessions (e.g. 24h + grace period) |
 | `AIRCRAFT_WRITE_LATEST` | `true` | Also write a live `aircraft.json` — live mode only |
 | `AIRCRAFT_LATEST_FILE` | `aircraft.json` | Name of the live file |
@@ -106,3 +106,7 @@ Uploaded aircraft_20260510_221933EDT.json: {'ok': True, 'imported': 7, 'captured
 - Tested against intercept schema as of May 2026
 - The `snapshot` JSONB column is used as a fallback if top-level columns are null
 - `messages` count in session files is scoped to the session window; in the live `aircraft.json` it reflects the total row count of `adsb_messages`
+
+## Acknowledgements
+
+The HMAC-SHA256 upload envelope (`_build_envelope`) is derived from [gungnir](https://github.com/HiroAlleyCat/gungnir) by Zach B., used under the MIT License.
