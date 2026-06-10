@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 
 import argparse
+import base64
+import hashlib
+import hmac
 import os
 import json
+import secrets
 import time
 import tempfile
 from datetime import date, datetime, timedelta, timezone
@@ -38,7 +42,7 @@ TIMEZONE = ZoneInfo(os.getenv("AIRCRAFT_TIMEZONE", "UTC"))
 MAX_CONSECUTIVE_ERRORS = int(os.getenv("AIRCRAFT_MAX_ERRORS", "10"))
 
 WDGWARS_API_KEY = os.getenv("WDGWARS_API_KEY", "")
-WDGWARS_UPLOAD_URL = os.getenv("WDGWARS_UPLOAD_URL", "https://wdgwars.pl/api/upload-csv")
+WDGWARS_UPLOAD_URL = os.getenv("WDGWARS_UPLOAD_URL", "https://wdgwars.pl/api/upload/")
 
 HEALTHCHECKS_URL = os.getenv("HEALTHCHECKS_URL", "")
 
@@ -332,17 +336,71 @@ def ping_healthcheck(success=True, message=""):
         pass
 
 
+def to_upload_record(ac, now=None):
+    lat = ac.get("lat")
+    lon = ac.get("lon")
+    if lat is None or lon is None:
+        return None
+    seen = ac.get("seen_pos") if ac.get("seen_pos") is not None else ac.get("seen")
+    if now is not None and seen is not None:
+        first_seen = datetime.fromtimestamp(now - seen, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        first_seen = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    rec = {
+        "icao": ac["hex"].upper(),
+        "callsign": (ac.get("flight") or "").strip(),
+        "lat": float(lat),
+        "lon": float(lon),
+        "first_seen": first_seen,
+        "type": "ADSB",
+    }
+    if ac.get("alt_baro") is not None:
+        rec["alt_ft"] = int(ac["alt_baro"])
+    if ac.get("gs") is not None:
+        rec["speed_kt"] = int(ac["gs"])
+    if ac.get("track") is not None:
+        rec["heading"] = int(ac["track"])
+    return rec
+
+
+def _build_envelope(payload_dict, api_key):
+    body_json = json.dumps(payload_dict, separators=(",", ":"))
+    data_b64 = base64.b64encode(body_json.encode()).decode()
+    nonce = secrets.token_hex(8)
+    sig = hmac.new(
+        api_key.encode(),
+        (nonce + data_b64).encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    return {"data": data_b64, "nonce": nonce, "sig": sig}
+
+
 def upload_file(path):
     if not WDGWARS_API_KEY:
         return
     try:
-        with open(path, "rb") as f:
-            resp = requests.post(
-                WDGWARS_UPLOAD_URL,
-                headers={"X-API-Key": WDGWARS_API_KEY},
-                files={"file": (path.name, f, "application/json")},
-                timeout=30,
-            )
+        with open(path) as f:
+            file_data = json.load(f)
+        now_ts = file_data.get("now")
+        records = [
+            r for ac in file_data.get("aircraft", [])
+            if (r := to_upload_record(ac, now=now_ts)) is not None
+        ]
+        if not records:
+            print(f"Upload skipped: no GPS-bearing aircraft in {path.name}")
+            return
+        payload = {"networks": [], "aircraft": records, "meshcore_nodes": []}
+        envelope = _build_envelope(payload, WDGWARS_API_KEY)
+        resp = requests.post(
+            WDGWARS_UPLOAD_URL,
+            headers={
+                "Content-Type": "application/json",
+                "X-API-Key": WDGWARS_API_KEY,
+                "Accept": "application/json",
+            },
+            data=json.dumps(envelope).encode(),
+            timeout=30,
+        )
         if resp.status_code == 429:
             msg = f"rate limited: {path.name}"
             print(f"Upload {msg}")
