@@ -587,8 +587,7 @@ def main():
 
     last_session_id = None
     last_session_file = None
-    last_session_started_at = None
-    last_timed_upload = None
+    last_uploaded_at = None  # start of the next upload window; advances after each upload
     consecutive_errors = 0
 
     while True:
@@ -597,11 +596,10 @@ def main():
 
             if session is None:
                 if last_session_file is not None:
-                    finalize_session(last_session_file, last_session_id, last_session_started_at)
+                    finalize_session(last_session_file, last_session_id, last_uploaded_at)
                     last_session_file = None
                     last_session_id = None
-                    last_session_started_at = None
-                    last_timed_upload = None
+                    last_uploaded_at = None
                 print("No active session, waiting...")
                 time.sleep(REFRESH_SECONDS)
                 continue
@@ -611,24 +609,23 @@ def main():
 
             if current_session_id != last_session_id:
                 if last_session_file is not None:
-                    finalize_session(last_session_file, last_session_id, last_session_started_at)
+                    finalize_session(last_session_file, last_session_id, last_uploaded_at)
                 print(f"Writing session file: {current_file}")
                 last_session_id = current_session_id
                 last_session_file = current_file
-                last_session_started_at = session["started_at"]
-                last_timed_upload = utc_now()
+                last_uploaded_at = session["started_at"]
 
             atomic_write_json(current_file, payload)
 
             if WRITE_LATEST:
                 atomic_write_json(latest_path, payload)
 
-            if SESSION_MINUTES and last_timed_upload is not None:
+            if SESSION_MINUTES and last_uploaded_at is not None:
                 now = utc_now()
-                if (now - last_timed_upload).total_seconds() >= SESSION_MINUTES * 60:
+                if (now - last_uploaded_at).total_seconds() >= SESSION_MINUTES * 60:
                     print(f"Timed upload: {current_file.name}")
-                    upload_window(current_file, last_session_started_at, now)
-                    last_timed_upload = now
+                    upload_window(current_file, last_uploaded_at, now)
+                    last_uploaded_at = now
 
             consecutive_errors = 0
 
