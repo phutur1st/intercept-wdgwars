@@ -44,6 +44,8 @@ MAX_CONSECUTIVE_ERRORS = int(os.getenv("AIRCRAFT_MAX_ERRORS", "10"))
 WDGWARS_API_KEY = os.getenv("WDGWARS_API_KEY", "")
 WDGWARS_UPLOAD_URL = os.getenv("WDGWARS_UPLOAD_URL", "https://wdgwars.pl/api/upload/")
 
+SESSION_MINUTES = int(os.getenv("AIRCRAFT_SESSION_MINUTES", "0"))
+
 HEALTHCHECKS_URL = os.getenv("HEALTHCHECKS_URL", "")
 
 
@@ -483,15 +485,8 @@ def build_payload():
     return session, payload
 
 
-def finalize_session(path, session_id, started_at):
+def upload_window(path, started_at, window_end):
     with db_connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT ended_at FROM adsb_sessions WHERE id = %s", (session_id,))
-            row = cur.fetchone()
-        ended_at = row[0] if row and row[0] else None
-        if ended_at is not None and ended_at.tzinfo is None:
-            ended_at = ended_at.replace(tzinfo=timezone.utc)
-        window_end = ended_at or utc_now()
         aircraft = fetch_aircraft_in_window(conn, started_at, window_end)
         messages = fetch_message_count_in_window(conn, started_at, window_end)
     payload = {
@@ -502,6 +497,17 @@ def finalize_session(path, session_id, started_at):
     atomic_write_json(path, payload)
     upload_file(path)
     ping_healthcheck(success=True, message=f"{len(aircraft)} aircraft uploaded")
+
+
+def finalize_session(path, session_id, started_at):
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT ended_at FROM adsb_sessions WHERE id = %s", (session_id,))
+            row = cur.fetchone()
+        ended_at = row[0] if row and row[0] else None
+        if ended_at is not None and ended_at.tzinfo is None:
+            ended_at = ended_at.replace(tzinfo=timezone.utc)
+    upload_window(path, started_at, ended_at or utc_now())
 
 
 def run_historical(target_date):
@@ -574,6 +580,7 @@ def main():
     print(f"Output dir: {OUTPUT_DIR}")
     print(f"Refresh: every {REFRESH_SECONDS} second(s)")
     print(f"Max aircraft age: {MAX_AGE_SECONDS} second(s)")
+    print(f"Session upload interval: every {SESSION_MINUTES} minute(s)" if SESSION_MINUTES else "Session upload interval: on session end only")
     print(f"Write latest file: {WRITE_LATEST}")
     if WRITE_LATEST:
         print(f"Latest file: {latest_path}")
@@ -581,6 +588,7 @@ def main():
     last_session_id = None
     last_session_file = None
     last_session_started_at = None
+    last_timed_upload = None
     consecutive_errors = 0
 
     while True:
@@ -593,6 +601,7 @@ def main():
                     last_session_file = None
                     last_session_id = None
                     last_session_started_at = None
+                    last_timed_upload = None
                 print("No active session, waiting...")
                 time.sleep(REFRESH_SECONDS)
                 continue
@@ -607,11 +616,19 @@ def main():
                 last_session_id = current_session_id
                 last_session_file = current_file
                 last_session_started_at = session["started_at"]
+                last_timed_upload = utc_now()
 
             atomic_write_json(current_file, payload)
 
             if WRITE_LATEST:
                 atomic_write_json(latest_path, payload)
+
+            if SESSION_MINUTES and last_timed_upload is not None:
+                now = utc_now()
+                if (now - last_timed_upload).total_seconds() >= SESSION_MINUTES * 60:
+                    print(f"Timed upload: {current_file.name}")
+                    upload_window(current_file, last_session_started_at, now)
+                    last_timed_upload = now
 
             consecutive_errors = 0
 
