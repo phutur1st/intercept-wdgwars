@@ -578,6 +578,9 @@ def upload_window(path, started_at, window_end):
         "aircraft": aircraft,
     }
     atomic_write_json(path, payload)
+    start_str = started_at.astimezone(TIMEZONE).strftime("%H:%M:%S")
+    end_str = window_end.astimezone(TIMEZONE).strftime("%H:%M:%S")
+    print(f"  {path.name}: {len(aircraft)} aircraft ({start_str} → {end_str})")
     ok = upload_file(path)
     if ok:
         ping_healthcheck(success=True, message=f"{len(aircraft)} aircraft uploaded")
