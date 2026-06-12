@@ -65,6 +65,11 @@ def utc_now():
     return datetime.now(timezone.utc)
 
 
+def log(msg):
+    ts = utc_now().astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
+    log(f"{ts} {msg}")
+
+
 def seconds_since(dt, reference=None):
     if dt is None:
         return None
@@ -399,14 +404,14 @@ def _endpoint_available():
     try:
         resp = requests.head(WDGWARS_UPLOAD_URL, timeout=5, allow_redirects=True)
         if resp.status_code in _CF_ORIGIN_DOWN or _is_cf_error(resp):
-            print(f"Upload skipped: endpoint unavailable (HTTP {resp.status_code})")
+            log(f"Upload skipped: endpoint unavailable (HTTP {resp.status_code})")
             return False
         return True
     except requests.exceptions.ConnectionError:
-        print("Upload skipped: endpoint unreachable (connection refused)")
+        log("Upload skipped: endpoint unreachable (connection refused)")
         return False
     except requests.exceptions.Timeout:
-        print("Upload skipped: endpoint unreachable (timed out)")
+        log("Upload skipped: endpoint unreachable (timed out)")
         return False
     except Exception:
         return True
@@ -447,7 +452,7 @@ def upload_file(path):
             if (r := to_upload_record(ac, now=now_ts)) is not None
         ]
         if not records:
-            print(f"Upload skipped: no GPS-bearing aircraft in {path.name}")
+            log(f"Upload skipped: no GPS-bearing aircraft in {path.name}")
             return True
         payload = {"networks": [], "aircraft": records, "meshcore_nodes": []}
         envelope = _build_envelope(payload, WDGWARS_API_KEY)
@@ -462,25 +467,25 @@ def upload_file(path):
             timeout=30,
         )
         if resp.status_code in _CF_ORIGIN_DOWN or _is_cf_error(resp):
-            print(f"Upload skipped: origin down (HTTP {resp.status_code}): {path.name}")
+            log(f"Upload skipped: origin down (HTTP {resp.status_code}): {path.name}")
             return False
         if resp.status_code == 429:
-            print(f"Upload rate limited: {path.name}")
+            log(f"Upload rate limited: {path.name}")
             return False
         if not resp.ok:
             msg = f"failed ({resp.status_code}): {path.name} — {resp.text}"
-            print(f"Upload {msg}")
+            log(f"Upload {msg}")
             ping_healthcheck(success=False, message=msg)
             return True  # data rejection — retrying won't help
         result = resp.json()
-        print(f"Uploaded {path.name}: {result}")
+        log(f"Uploaded {path.name}: {result}")
         return True
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-        print(f"Upload network error: {path.name}")
+        log(f"Upload network error: {path.name}")
         return False
     except Exception as exc:
         msg = f"error uploading {path.name}: {exc}"
-        print(f"Upload {msg}")
+        log(f"Upload {msg}")
         ping_healthcheck(success=False, message=msg)
         return True
 
@@ -501,7 +506,7 @@ def _save_queue(entries):
         elif UPLOAD_QUEUE_PATH.exists():
             UPLOAD_QUEUE_PATH.unlink()
     except Exception as exc:
-        print(f"Queue save error: {exc}")
+        log(f"Queue save error: {exc}")
 
 
 def _enqueue(path, started_at, window_end):
@@ -513,7 +518,7 @@ def _enqueue(path, started_at, window_end):
         "queued_at": utc_now().isoformat(),
     })
     _save_queue(queue)
-    print(f"Queued for retry: {path.name}")
+    log(f"Queued for retry: {path.name}")
 
 
 def drain_queue():
@@ -530,7 +535,7 @@ def drain_queue():
         if queued_at.tzinfo is None:
             queued_at = queued_at.replace(tzinfo=timezone.utc)
         if (now - queued_at).total_seconds() > UPLOAD_QUEUE_MAX_AGE_HOURS * 3600:
-            print(f"Queue entry expired, dropping: {Path(entry['path']).name}")
+            log(f"Queue entry expired, dropping: {Path(entry['path']).name}")
             continue
         if failed:
             remaining.append(entry)
@@ -541,7 +546,7 @@ def drain_queue():
             started_at = started_at.replace(tzinfo=timezone.utc)
         if window_end.tzinfo is None:
             window_end = window_end.replace(tzinfo=timezone.utc)
-        print(f"Retrying queued upload: {Path(entry['path']).name}")
+        log(f"Retrying queued upload: {Path(entry['path']).name}")
         if not upload_window(Path(entry["path"]), started_at, window_end):
             failed = True
             remaining.append(entry)
@@ -580,7 +585,7 @@ def upload_window(path, started_at, window_end):
     atomic_write_json(path, payload)
     start_str = started_at.astimezone(TIMEZONE).strftime("%H:%M:%S")
     end_str = window_end.astimezone(TIMEZONE).strftime("%H:%M:%S")
-    print(f"  {path.name}: {len(aircraft)} aircraft ({start_str} → {end_str})")
+    log(f"  {path.name}: {len(aircraft)} aircraft ({start_str} → {end_str})")
     ok = upload_file(path)
     if ok:
         ping_healthcheck(success=True, message=f"{len(aircraft)} aircraft uploaded")
@@ -606,18 +611,18 @@ def run_historical(target_date):
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    print(f"Historical export for {target_date} ({TIMEZONE.key})")
-    print(f"DB: {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
-    print(f"Output dir: {OUTPUT_DIR}")
+    log(f"Historical export for {target_date} ({TIMEZONE.key})")
+    log(f"DB: {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+    log(f"Output dir: {OUTPUT_DIR}")
 
     with db_connect() as conn:
         sessions = fetch_sessions_for_date(conn, day_start, day_end)
 
     if not sessions:
-        print("No sessions found for that date.")
+        log("No sessions found for that date.")
         return
 
-    print(f"Found {len(sessions)} session(s)")
+    log(f"Found {len(sessions)} session(s)")
     written = 0
 
     for session in sessions:
@@ -639,10 +644,10 @@ def run_historical(target_date):
         }
         atomic_write_json(path, payload)
         upload_file(path)
-        print(f"  {path.name}: {len(aircraft)} aircraft")
+        log(f"  {path.name}: {len(aircraft)} aircraft")
         written += 1
 
-    print(f"Done: {written} session file(s) written to {OUTPUT_DIR}")
+    log(f"Done: {written} session file(s) written to {OUTPUT_DIR}")
 
 
 def main():
@@ -666,15 +671,15 @@ def main():
 
     latest_path = OUTPUT_DIR / LATEST_FILE
 
-    print("Intercept ADS-B aircraft.json exporter")
-    print(f"DB: {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
-    print(f"Output dir: {OUTPUT_DIR}")
-    print(f"Refresh: every {REFRESH_SECONDS} second(s)")
-    print(f"Max aircraft age: {MAX_AGE_SECONDS} second(s)")
-    print(f"Session upload interval: every {SESSION_MINUTES} minute(s)" if SESSION_MINUTES else "Session upload interval: on session end only")
-    print(f"Write latest file: {WRITE_LATEST}")
+    log("Intercept ADS-B aircraft.json exporter")
+    log(f"DB: {DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}")
+    log(f"Output dir: {OUTPUT_DIR}")
+    log(f"Refresh: every {REFRESH_SECONDS} second(s)")
+    log(f"Max aircraft age: {MAX_AGE_SECONDS} second(s)")
+    log(f"Session upload interval: every {SESSION_MINUTES} minute(s)" if SESSION_MINUTES else "Session upload interval: on session end only")
+    log(f"Write latest file: {WRITE_LATEST}")
     if WRITE_LATEST:
-        print(f"Latest file: {latest_path}")
+        log(f"Latest file: {latest_path}")
 
     last_session_id = None
     last_session_file = None
@@ -691,7 +696,7 @@ def main():
                     last_session_file = None
                     last_session_id = None
                     last_uploaded_at = None
-                print("No active session, waiting...")
+                log("No active session, waiting...")
                 time.sleep(REFRESH_SECONDS)
                 continue
 
@@ -701,7 +706,7 @@ def main():
             if current_session_id != last_session_id:
                 if last_session_file is not None:
                     finalize_session(last_session_file, last_session_id, last_uploaded_at)
-                print(f"Writing session file: {current_file}")
+                log(f"Writing session file: {current_file}")
                 last_session_id = current_session_id
                 last_session_file = current_file
                 last_uploaded_at = session["started_at"]
@@ -714,7 +719,7 @@ def main():
             if SESSION_MINUTES and last_uploaded_at is not None:
                 now = utc_now()
                 if (now - last_uploaded_at).total_seconds() >= SESSION_MINUTES * 60:
-                    print(f"Timed upload: {current_file.name}")
+                    log(f"Timed upload: {current_file.name}")
                     if upload_window(current_file, last_uploaded_at, now):
                         last_uploaded_at = now
                     # on failure: last_uploaded_at stays put, next interval covers wider window
@@ -725,9 +730,9 @@ def main():
 
         except Exception as exc:
             consecutive_errors += 1
-            print(f"Exporter error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {exc}")
+            log(f"Exporter error ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}): {exc}")
             if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                print("Too many consecutive errors, exiting.")
+                log("Too many consecutive errors, exiting.")
                 raise SystemExit(1)
 
         time.sleep(REFRESH_SECONDS)
