@@ -719,8 +719,10 @@ def main():
             if SESSION_MINUTES and last_uploaded_at is not None:
                 now = utc_now()
                 if (now - last_uploaded_at).total_seconds() >= SESSION_MINUTES * 60:
-                    log(f"Timed upload: {current_file.name}")
-                    if upload_window(current_file, last_uploaded_at, now):
+                    # stamp by window-end so each interval gets a unique filename
+                    timed_path = session_filepath(now)
+                    log(f"Timed upload: {timed_path.name}")
+                    if upload_window(timed_path, last_uploaded_at, now):
                         last_uploaded_at = now
                     # on failure: last_uploaded_at stays put, next interval covers wider window
 
