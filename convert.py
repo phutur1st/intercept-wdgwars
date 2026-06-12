@@ -46,6 +46,7 @@ WDGWARS_UPLOAD_URL = os.getenv("WDGWARS_UPLOAD_URL", "https://wdgwars.pl/api/upl
 
 SESSION_MINUTES = int(os.getenv("AIRCRAFT_SESSION_MINUTES", "0"))
 UPLOAD_QUEUE_MAX_AGE_HOURS = int(os.getenv("AIRCRAFT_QUEUE_MAX_AGE_HOURS", "24"))
+UPLOAD_QUEUE_PATH = OUTPUT_DIR / ".upload_queue.json"
 
 HEALTHCHECKS_URL = os.getenv("HEALTHCHECKS_URL", "")
 
@@ -484,27 +485,21 @@ def upload_file(path):
         return True
 
 
-def _queue_path():
-    return OUTPUT_DIR / ".upload_queue.json"
-
-
 def _load_queue():
-    p = _queue_path()
     try:
-        if p.exists():
-            return json.loads(p.read_text())
+        if UPLOAD_QUEUE_PATH.exists():
+            return json.loads(UPLOAD_QUEUE_PATH.read_text())
     except Exception:
         pass
     return []
 
 
 def _save_queue(entries):
-    p = _queue_path()
     try:
         if entries:
-            atomic_write_json(p, entries)
-        elif p.exists():
-            p.unlink()
+            atomic_write_json(UPLOAD_QUEUE_PATH, entries)
+        elif UPLOAD_QUEUE_PATH.exists():
+            UPLOAD_QUEUE_PATH.unlink()
     except Exception as exc:
         print(f"Queue save error: {exc}")
 
@@ -628,20 +623,21 @@ def run_historical(target_date):
 
         with db_connect() as conn:
             aircraft = fetch_aircraft_in_window(conn, window_start, window_end)
-            if aircraft:
-                messages = fetch_message_count_in_window(conn, window_start, window_end)
+            messages = fetch_message_count_in_window(conn, window_start, window_end)
 
-        if aircraft:
-            path = session_filepath(session["started_at"], replay=True)
-            payload = {
-                "now": window_end.timestamp(),
-                "messages": messages,
-                "aircraft": aircraft,
-            }
-            atomic_write_json(path, payload)
-            upload_file(path)
-            print(f"  {path.name}: {len(aircraft)} aircraft")
-            written += 1
+        if not aircraft:
+            continue
+
+        path = session_filepath(session["started_at"], replay=True)
+        payload = {
+            "now": window_end.timestamp(),
+            "messages": messages,
+            "aircraft": aircraft,
+        }
+        atomic_write_json(path, payload)
+        upload_file(path)
+        print(f"  {path.name}: {len(aircraft)} aircraft")
+        written += 1
 
     print(f"Done: {written} session file(s) written to {OUTPUT_DIR}")
 
