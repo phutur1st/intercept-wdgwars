@@ -67,7 +67,7 @@ def utc_now():
 
 def log(msg):
     ts = utc_now().astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
-    log(f"{ts} {msg}")
+    print(f"{ts} {msg}")
 
 
 def seconds_since(dt, reference=None):
