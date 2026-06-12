@@ -45,6 +45,7 @@ WDGWARS_API_KEY = os.getenv("WDGWARS_API_KEY", "")
 WDGWARS_UPLOAD_URL = os.getenv("WDGWARS_UPLOAD_URL", "https://wdgwars.pl/api/upload/")
 
 SESSION_MINUTES = int(os.getenv("AIRCRAFT_SESSION_MINUTES", "0"))
+UPLOAD_QUEUE_MAX_AGE_HOURS = int(os.getenv("AIRCRAFT_QUEUE_MAX_AGE_HOURS", "24"))
 
 HEALTHCHECKS_URL = os.getenv("HEALTHCHECKS_URL", "")
 
@@ -425,10 +426,17 @@ def _build_envelope(payload_dict, api_key):
 
 
 def upload_file(path):
+    """Attempt to upload path to wdgwars.
+
+    Returns True if the upload succeeded or failed for a non-retriable reason
+    (bad data, auth rejection — retrying won't help).
+    Returns False if the upload failed for a retriable reason (server down,
+    CF error, rate limit, network error) — the caller should queue for retry.
+    """
     if not WDGWARS_API_KEY:
-        return
+        return True
     if not _endpoint_available():
-        return
+        return False
     try:
         with open(path) as f:
             file_data = json.load(f)
@@ -439,7 +447,7 @@ def upload_file(path):
         ]
         if not records:
             print(f"Upload skipped: no GPS-bearing aircraft in {path.name}")
-            return
+            return True
         payload = {"networks": [], "aircraft": records, "meshcore_nodes": []}
         envelope = _build_envelope(payload, WDGWARS_API_KEY)
         resp = requests.post(
@@ -453,22 +461,96 @@ def upload_file(path):
             timeout=30,
         )
         if resp.status_code in _CF_ORIGIN_DOWN or _is_cf_error(resp):
-            print(f"Upload skipped: origin went down during POST (HTTP {resp.status_code}): {path.name}")
-        elif resp.status_code == 429:
-            msg = f"rate limited: {path.name}"
-            print(f"Upload {msg}")
-            ping_healthcheck(success=False, message=msg)
-        elif not resp.ok:
+            print(f"Upload skipped: origin down (HTTP {resp.status_code}): {path.name}")
+            return False
+        if resp.status_code == 429:
+            print(f"Upload rate limited: {path.name}")
+            return False
+        if not resp.ok:
             msg = f"failed ({resp.status_code}): {path.name} — {resp.text}"
             print(f"Upload {msg}")
             ping_healthcheck(success=False, message=msg)
-        else:
-            result = resp.json()
-            print(f"Uploaded {path.name}: {result}")
+            return True  # data rejection — retrying won't help
+        result = resp.json()
+        print(f"Uploaded {path.name}: {result}")
+        return True
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        print(f"Upload network error: {path.name}")
+        return False
     except Exception as exc:
         msg = f"error uploading {path.name}: {exc}"
         print(f"Upload {msg}")
         ping_healthcheck(success=False, message=msg)
+        return True
+
+
+def _queue_path():
+    return OUTPUT_DIR / ".upload_queue.json"
+
+
+def _load_queue():
+    p = _queue_path()
+    try:
+        if p.exists():
+            return json.loads(p.read_text())
+    except Exception:
+        pass
+    return []
+
+
+def _save_queue(entries):
+    p = _queue_path()
+    try:
+        if entries:
+            atomic_write_json(p, entries)
+        elif p.exists():
+            p.unlink()
+    except Exception as exc:
+        print(f"Queue save error: {exc}")
+
+
+def _enqueue(path, started_at, window_end):
+    queue = _load_queue()
+    queue.append({
+        "path": str(path),
+        "started_at": started_at.isoformat(),
+        "window_end": window_end.isoformat(),
+        "queued_at": utc_now().isoformat(),
+    })
+    _save_queue(queue)
+    print(f"Queued for retry: {path.name}")
+
+
+def drain_queue():
+    queue = _load_queue()
+    if not queue:
+        return
+    if not _endpoint_available():
+        return
+    now = utc_now()
+    remaining = []
+    failed = False
+    for entry in queue:
+        queued_at = datetime.fromisoformat(entry["queued_at"])
+        if queued_at.tzinfo is None:
+            queued_at = queued_at.replace(tzinfo=timezone.utc)
+        if (now - queued_at).total_seconds() > UPLOAD_QUEUE_MAX_AGE_HOURS * 3600:
+            print(f"Queue entry expired, dropping: {Path(entry['path']).name}")
+            continue
+        if failed:
+            remaining.append(entry)
+            continue
+        started_at = datetime.fromisoformat(entry["started_at"])
+        window_end = datetime.fromisoformat(entry["window_end"])
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=timezone.utc)
+        if window_end.tzinfo is None:
+            window_end = window_end.replace(tzinfo=timezone.utc)
+        print(f"Retrying queued upload: {Path(entry['path']).name}")
+        if not upload_window(Path(entry["path"]), started_at, window_end):
+            failed = True
+            remaining.append(entry)
+    _save_queue(remaining)
 
 
 def build_payload():
@@ -486,6 +568,10 @@ def build_payload():
 
 
 def upload_window(path, started_at, window_end):
+    """Query [started_at, window_end), write path, and upload.
+
+    Returns True on success or non-retriable failure, False on retriable failure.
+    """
     with db_connect() as conn:
         aircraft = fetch_aircraft_in_window(conn, started_at, window_end)
         messages = fetch_message_count_in_window(conn, started_at, window_end)
@@ -495,8 +581,10 @@ def upload_window(path, started_at, window_end):
         "aircraft": aircraft,
     }
     atomic_write_json(path, payload)
-    upload_file(path)
-    ping_healthcheck(success=True, message=f"{len(aircraft)} aircraft uploaded")
+    ok = upload_file(path)
+    if ok:
+        ping_healthcheck(success=True, message=f"{len(aircraft)} aircraft uploaded")
+    return ok
 
 
 def finalize_session(path, session_id, started_at):
@@ -507,7 +595,9 @@ def finalize_session(path, session_id, started_at):
         ended_at = row[0] if row and row[0] else None
         if ended_at is not None and ended_at.tzinfo is None:
             ended_at = ended_at.replace(tzinfo=timezone.utc)
-    upload_window(path, started_at, ended_at or utc_now())
+    window_end = ended_at or utc_now()
+    if not upload_window(path, started_at, window_end):
+        _enqueue(path, started_at, window_end)
 
 
 def run_historical(target_date):
@@ -624,8 +714,11 @@ def main():
                 now = utc_now()
                 if (now - last_uploaded_at).total_seconds() >= SESSION_MINUTES * 60:
                     print(f"Timed upload: {current_file.name}")
-                    upload_window(current_file, last_uploaded_at, now)
-                    last_uploaded_at = now
+                    if upload_window(current_file, last_uploaded_at, now):
+                        last_uploaded_at = now
+                    # on failure: last_uploaded_at stays put, next interval covers wider window
+
+            drain_queue()
 
             consecutive_errors = 0
 
