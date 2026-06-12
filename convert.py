@@ -550,6 +550,8 @@ def drain_queue():
         if not upload_window(Path(entry["path"]), started_at, window_end):
             failed = True
             remaining.append(entry)
+        else:
+            time.sleep(2)
     _save_queue(remaining)
 
 
