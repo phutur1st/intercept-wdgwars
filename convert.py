@@ -490,6 +490,30 @@ def upload_file(path):
         return True
 
 
+def _upload_cursor_path(session_id):
+    return OUTPUT_DIR / f".upload_cursor_{session_id}.json"
+
+
+def _load_last_uploaded_at(session_id):
+    p = _upload_cursor_path(session_id)
+    try:
+        if p.exists():
+            ts = json.loads(p.read_text()).get("last_uploaded_at")
+            if ts:
+                dt = datetime.fromisoformat(ts)
+                return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        pass
+    return None
+
+
+def _save_last_uploaded_at(session_id, dt):
+    try:
+        atomic_write_json(_upload_cursor_path(session_id), {"last_uploaded_at": dt.isoformat()})
+    except Exception as exc:
+        log(f"Cursor save error: {exc}")
+
+
 def _load_queue():
     try:
         if UPLOAD_QUEUE_PATH.exists():
@@ -703,19 +727,21 @@ def main():
             current_session_id = session["id"]
             current_file = session_filepath(session["started_at"])
 
-            if current_session_id != last_session_id:
+            session_changed = current_session_id != last_session_id
+            if session_changed:
                 if last_session_file is not None:
                     finalize_session(last_session_file, last_session_id, last_uploaded_at)
                 log(f"Writing session file: {current_file}")
                 last_session_id = current_session_id
                 last_session_file = current_file
-                last_uploaded_at = session["started_at"]
+                last_uploaded_at = _load_last_uploaded_at(current_session_id) or session["started_at"]
 
             atomic_write_json(current_file, payload)
 
             if WRITE_LATEST:
                 atomic_write_json(latest_path, payload)
 
+            timed_this_cycle = False
             if SESSION_MINUTES and last_uploaded_at is not None:
                 now = utc_now()
                 if (now - last_uploaded_at).total_seconds() >= SESSION_MINUTES * 60:
@@ -724,9 +750,12 @@ def main():
                     log(f"Timed upload: {timed_path.name}")
                     if upload_window(timed_path, last_uploaded_at, now):
                         last_uploaded_at = now
+                        _save_last_uploaded_at(current_session_id, last_uploaded_at)
+                        timed_this_cycle = True
                     # on failure: last_uploaded_at stays put, next interval covers wider window
 
-            drain_queue()
+            if not session_changed and not timed_this_cycle:
+                drain_queue()
 
             consecutive_errors = 0
 
